@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Заявка на ключи от парковки</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+  #app { max-width: 480px; margin: 0 auto; padding: 20px 16px 60px; }
+  .hidden { display: none !important; }
+  h1 { font-size: 22px; margin-bottom: 8px; }
+  h2 { font-size: 18px; margin-bottom: 12px; }
+  p.sub { color: #94a3b8; font-size: 14px; margin-bottom: 20px; }
+  label { display: block; font-size: 14px; margin: 14px 0 6px; color: #cbd5e1; }
+  input[type=text], input[type=email], input[type=number] {
+    width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #334155;
+    background: #1e293b; color: #e2e8f0; font-size: 16px;
+  }
+  .consent { display: flex; gap: 10px; align-items: flex-start; margin: 18px 0; font-size: 13px; color: #94a3b8; }
+  .consent input { width: 20px; height: 20px; margin-top: 2px; }
+  button {
+    width: 100%; padding: 16px; border: 0; border-radius: 12px; font-size: 16px; font-weight: 600;
+    background: #38bdf8; color: #082f49; cursor: pointer; margin-top: 16px;
+  }
+  button:disabled { opacity: .4; }
+  button.ghost { background: #1e293b; color: #cbd5e1; }
+  .step { margin-top: 20px; }
+  .card { background: #1e293b; border-radius: 16px; padding: 16px; margin-top: 16px; }
+  /* --- face --- */
+  #cam-wrap { position: relative; width: 100%; aspect-ratio: 3/4; border-radius: 20px; overflow: hidden; background: #000; margin-top: 16px; }
+  #video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  #oval {
+    position: absolute; inset: 8% 12%; border: 4px solid #38bdf8; border-radius: 50%;
+    pointer-events: none; transition: border-color .3s;
+  }
+  #oval.ok { border-color: #22c55e; }
+  #arrow { position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; margin: -32px; pointer-events: none; }
+  #face-hint { text-align: center; font-size: 16px; font-weight: 600; margin-top: 14px; min-height: 24px; }
+  #progress { display: flex; gap: 10px; justify-content: center; margin-top: 12px; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; background: #334155; }
+  .dot.done { background: #22c55e; }
+  .dot.active { background: #38bdf8; }
+  #debug { font-family: monospace; font-size: 12px; color: #fbbf24; text-align: center; margin-top: 8px; white-space: pre; }
+  /* --- docs --- */
+  .doc-block { border: 2px dashed #334155; border-radius: 16px; padding: 24px; text-align: center; margin-top: 16px; cursor: pointer; }
+  .doc-block img { width: 100%; border-radius: 10px; margin-top: 10px; }
+  .doc-block .ok-mark { color: #22c55e; font-weight: 700; }
+  input[type=file] { display: none; }
+  .err { color: #f87171; font-size: 14px; margin-top: 10px; }
+  .ok-screen { text-align: center; padding-top: 60px; }
+  .ok-screen .big { font-size: 56px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Предупреждение для встроенных браузеров -->
+  <div id="inapp" class="hidden">
+    <h1>Откройте в Safari</h1>
+    <p class="sub">Камера не работает внутри Telegram/Instagram.<br><br>
+    Нажмите «Поделиться» (квадрат со стрелкой) → «Открыть в Safari» и продолжите там.</p>
+  </div>
+
+  <div id="main">
+    <!-- ШАГ 1: данные -->
+    <section id="s-form" class="step">
+      <h1>Ключи от парковки</h1>
+      <p class="sub">Заявка для новых жильцов. Понадобятся: документ (договор аренды) и пара минут для проверки лица.</p>
+      <label>ФИО (как в договоре)</label>
+      <input type="text" id="fio" autocomplete="name">
+      <label>Email</label>
+      <input type="email" id="email" autocomplete="email">
+      <label>Номер квартиры</label>
+      <input type="number" id="apt" inputmode="numeric">
+      <div class="consent">
+        <input type="checkbox" id="consent">
+        <span>Согласен(на) на обработку моих персональных данных: фото и видео лица, а также фото договора аренды, в целях проверки и выдачи ключей от парковки.</span>
+      </div>
+      <div id="form-err" class="err hidden"></div>
+      <button id="btn-next1">Продолжить</button>
+    </section>
+
+    <!-- ШАГ 2: проверка лица -->
+    <section id="s-face" class="step hidden">
+      <h2>Проверка лица</h2>
+      <div id="face-warn">
+        <div class="card">
+          Сейчас мы включим камеру. Вы увидите себя на экране.<br><br>
+          Дальше нужно будет медленно повернуть голову по стрелке: вправо → вниз → влево → вверх. Всё это время идёт запись короткого видео — так мы убеждаемся, что вы настоящий.
+        </div>
+        <button id="btn-camera">Включить камеру</button>
+        <div id="cam-err" class="err hidden"></div>
+      </div>
+
+      <div id="face-active" class="hidden">
+        <div id="cam-wrap">
+          <video id="video" playsinline muted autoplay></video>
+          <div id="oval"></div>
+          <svg id="arrow" viewBox="0 0 64 64" class="hidden">
+            <circle cx="32" cy="32" r="30" fill="rgba(56,189,248,.25)"/>
+            <path id="arrow-path" d="" fill="none" stroke="#38bdf8" stroke-width="6" stroke-linecap="round"/>
+            <path id="arrow-head" d="" fill="#38bdf8"/>
+          </svg>
+        </div>
+        <div id="face-hint">Смотрите прямо в камеру…</div>
+        <div id="progress">
+          <div class="dot" data-i="0"></div><div class="dot" data-i="1"></div>
+          <div class="dot" data-i="2"></div><div class="dot" data-i="3"></div>
+        </div>
+        <div id="debug" class="hidden"></div>
+        <button id="btn-manual" class="ghost hidden">Не получается — сделать фото вручную</button>
+      </div>
+    </section>
+
+    <!-- ШАГ 3: фото договора -->
+    <section id="s-docs" class="step hidden">
+      <h2>Фото договора аренды</h2>
+      <p class="sub">Сфотографируйте договор. Первая страница — с данными сторон, последняя — с подписями.</p>
+      <div class="doc-block" id="doc1-block">
+        <b>Первая страница договора</b>
+        <div class="doc-status" id="doc1-status">Нажмите, чтобы сфотографировать</div>
+        <img id="doc1-img" class="hidden" alt="">
+      </div>
+      <input type="file" id="doc1" accept="image/*" capture="environment">
+      <div class="doc-block" id="doc2-block">
+        <b>Последняя страница договора (подписи)</b>
+        <div class="doc-status" id="doc2-status">Нажмите, чтобы сфотографировать</div>
+        <img id="doc2-img" class="hidden" alt="">
+      </div>
+      <input type="file" id="doc2" accept="image/*" capture="environment">
+      <div id="docs-err" class="err hidden"></div>
+      <button id="btn-send">Отправить заявку</button>
+    </section>
+
+    <!-- ШАГ 4: готово -->
+    <section id="s-done" class="step hidden">
+      <div class="ok-screen">
+        <div class="big">✅</div>
+        <h2 style="margin-top:16px">Заявка отправлена</h2>
+        <p class="sub" style="margin-top:10px">Мы проверим данные и пришлём подтверждение на ваш email.</p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script type="module">
+import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm";
+import { upload } from "https://cdn.jsdelivr.net/npm/@vercel/blob@0.23.4/+esm";
+
+const $ = id => document.getElementById(id);
+const DEBUG = new URLSearchParams(location.search).has("debug");
+if (DEBUG) $("debug").classList.remove("hidden");
+
+/* --- 0. Встроенные браузеры (Telegram, Instagram) --- */
+if (/Telegram|Instagram|FBAN|FBAV|Line/i.test(navigator.userAgent)) {
+  $("inapp").classList.remove("hidden");
+  $("main").classList.add("hidden");
+}
+
+const state = {
+  fio: "", email: "", apt: "",
+  manual: false,
+  yawValues: {},   // {right:…, down:…, left:…, up:…}
+  pitchValues: {},
+  facePhoto: null, doc1: null, doc2: null, videoUrl: null,
+};
+
+/* --- ШАГ 1: форма --- */
+$("btn-next1").onclick = () => {
+  const err = $("form-err");
+  state.fio = $("fio").value.trim();
+  state.email = $("email").value.trim();
+  state.apt = $("apt").value.trim();
+  const bad = [];
+  if (state.fio.split(/\s+/).length < 2) bad.push("укажите ФИО полностью");
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(state.email)) bad.push("проверьте email");
+  if (!state.apt) bad.push("укажите номер квартиры");
+  if (!$("consent").checked) bad.push("нужно согласие на обработку данных");
+  if (bad.length) { err.textContent = bad.join("; "); err.classList.remove("hidden"); return; }
+  err.classList.add("hidden");
+  $("s-form").classList.add("hidden");
+  $("s-face").classList.remove("hidden");
+};
+
+/* --- ШАГ 2: камера + лайвнесс --- */
+let stream, recorder, videoChunks = [], landmarker, running = false;
+let yawC = 0.5, pitchC = 0.45, calibFrames = 0;
+let stepIdx = -1, holdFrames = 0, stepTimer = null, stepStart = 0;
+const STEPS = [
+  { id: "right", hint: "Медленно поверните голову вправо", arrow: "M44 20 A20 20 0 0 1 44 44", head: "M50 30 L58 32 L50 38 Z",
+    check: (y,p) => y < yawC - 0.20 },
+  { id: "down", hint: "Теперь наклоните голову вниз", arrow: "M44 44 A20 20 0 0 1 20 44", head: "M30 50 L32 58 L38 50 Z",
+    check: (y,p) => p > pitchC + 0.12 },
+  { id: "left", hint: "Теперь влево", arrow: "M20 44 A20 20 0 0 1 20 20", head: "M14 38 L6 32 L14 26 Z",
+    check: (y,p) => y > yawC + 0.20 },
+  { id: "up", hint: "И наконец вверх", arrow: "M20 20 A20 20 0 0 1 44 20", head: "M38 14 L32 6 L26 14 Z",
+    check: (y,p) => p < pitchC - 0.12 },
+];
+const HOLD_NEED = 12, STEP_MS = 14000, CALIB_NEED = 20;
+
+function camError(e) {
+  const el = $("cam-err");
+  el.classList.remove("hidden");
+  el.innerHTML = "Не удалось включить камеру. Проверьте, что открыли сайт по HTTPS и разрешили доступ к камере:<br>«Настройки» → «Safari» → «Камера» → разрешить для этого сайта.";
+}
+
+$("btn-camera").onclick = async () => {
+  $("btn-camera").disabled = true;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 1080 }, height: { ideal: 1920 } }, audio: false
+    });
+  } catch (e) { $("btn-camera").disabled = false; return camError(e); }
+
+  const v = $("video");
+  v.srcObject = stream;
+  await v.play().catch(()=>{});
+
+  // запись видео
+  videoChunks = [];
+  const mime = ["video/mp4", "video/webm;codecs=vp9", "video/webm"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+  if (mime) {
+    recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 5_000_000 });
+    recorder.ondataavailable = e => e.data.size && videoChunks.push(e.data);
+    recorder.start(250);
+  }
+
+  // MediaPipe
+  try {
+    const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    landmarker = await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task", delegate: "GPU" },
+      outputFaceBlendshapes: false, runningMode: "VIDEO", numFaces: 1
+    });
+  } catch (e) { landmarker = null; } // упали — сработает ручное фото
+
+  $("face-warn").classList.add("hidden");
+  $("face-active").classList.remove("hidden");
+  calibFrames = 0; running = true;
+  requestAnimationFrame(loop);
+};
+
+function setDots() {
+  document.querySelectorAll(".dot").forEach((d, i) => {
+    d.className = "dot" + (i < stepIdx ? " done" : i === stepIdx ? " active" : "");
+  });
+}
+
+function startStep(i) {
+  stepIdx = i; holdFrames = 0;
+  const s = STEPS[i];
+  $("face-hint").textContent = s.hint;
+  $("arrow").classList.remove("hidden");
+  $("arrow-path").setAttribute("d", s.arrow);
+  $("arrow-head").setAttribute("d", s.head);
+  $("btn-manual").classList.add("hidden");
+  setDots();
+  clearTimeout(stepTimer); stepStart = performance.now();
+  stepTimer = setTimeout(() => $("btn-manual").classList.remove("hidden"), STEP_MS);
+}
+
+async function loop() {
+  if (!running) return;
+  const v = $("video");
+  if (v.readyState >= 2 && landmarker && stepIdx >= -1) {
+    let res = null;
+    try { res = landmarker.detectForVideo(v, performance.now()); } catch (e) {}
+    if (res && res.faceLandmarks && res.faceLandmarks.length) {
+      const lm = res.faceLandmarks[0];
+      const l = lm[234], r = lm[454], n = lm[1], t = lm[10], c = lm[152];
+      const yaw = (n.x - l.x) / Math.max(1e-6, r.x - l.x);
+      const pitch = (n.y - t.y) / Math.max(1e-6, c.y - t.y);
+      const faceW = Math.hypot(r.x - l.x, r.y - l.y);
+
+      if (DEBUG) $("debug").textContent = `yaw ${yaw.toFixed(3)} | pitch ${pitch.toFixed(3)} | лиц ${res.faceLandmarks.length}`;
+
+      if (stepIdx === -1) { // калибровка
+        if (res.faceLandmarks.length === 1 && faceW > 0.25) {
+          yawC += (yaw - yawC) * 0.2; pitchC += (pitch - pitchC) * 0.2;
+          if (++calibFrames >= CALIB_NEED) startStep(0);
+        } else {
+          $("face-hint").textContent = res.faceLandmarks.length > 1 ? "В кадре больше одного лица" : "Подойдите ближе к камере";
+        }
+      } else {
+        const s = STEPS[stepIdx];
+        const good = res.faceLandmarks.length === 1 && faceW > 0.2 && s.check(yaw, pitch);
+        $("oval").classList.toggle("ok", good);
+        if (good && ++holdFrames >= HOLD_NEED) {
+          state.yawValues[s.id] = +(yaw - yawC).toFixed(3);
+          state.pitchValues[s.id] = +(pitch - pitchC).toFixed(3);
+          $("oval").classList.remove("ok");
+          if (stepIdx < STEPS.length - 1) startStep(stepIdx + 1);
+          else finishFace();
+        }
+      }
+    } else if (stepIdx > -1) {
+      $("face-hint").textContent = "Лицо не найдено — смотрите в камеру";
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+function captureFrame(quality = 0.92) {
+  const v = $("video");
+  const cnv = document.createElement("canvas");
+  cnv.width = v.videoWidth; cnv.height = v.videoHeight;
+  cnv.getContext("2d").drawImage(v, 0, 0);
+  return cnv.toDataURL("image/jpeg", quality);
+}
+
+async function finishFace(manual = false) {
+  running = false;
+  clearTimeout(stepTimer);
+  state.manual = manual;
+  state.facePhoto = captureFrame();
+  if (recorder && recorder.state !== "inactive") recorder.stop();
+  stream.getTracks().forEach(t => t.stop());
+  $("s-face").classList.add("hidden");
+  $("s-docs").classList.remove("hidden");
+}
+
+$("btn-manual").onclick = () => finishFace(true);
+
+/* --- ШАГ 3: фото договора --- */
+async function compressPhoto(file, max = 1600) {
+  const url = URL.createObjectURL(file);
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+  const scale = Math.min(1, max / Math.max(img.width, img.height));
+  const cnv = document.createElement("canvas");
+  cnv.width = Math.round(img.width * scale); cnv.height = Math.round(img.height * scale);
+  cnv.getContext("2d").drawImage(img, 0, 0, cnv.width, cnv.height);
+  URL.revokeObjectURL(url);
+  return cnv.toDataURL("image/jpeg", 0.85);
+}
+
+function bindDoc(inputId, imgId, statusId, blockId, key) {
+  $(blockId).onclick = () => $(inputId).click();
+  $(inputId).onchange = async e => {
+    if (!e.target.files[0]) return;
+    const b64 = await compressPhoto(e.target.files[0]);
+    state[key] = b64;
+    $(imgId).src = b64;
+    $(imgId).classList.remove("hidden");
+    $(statusId).innerHTML = '<span class="ok-mark">✓ Фото готово</span>';
+  };
+}
+bindDoc("doc1", "doc1-img", "doc1-status", "doc1-block", "doc1");
+bindDoc("doc2", "doc2-img", "doc2-status", "doc2-block", "doc2");
+
+/* --- Отправка --- */
+$("btn-send").onclick = async () => {
+  const err = $("docs-err");
+  if (!state.doc1 || !state.doc2) { err.textContent = "Нужны оба фото договора."; err.classList.remove("hidden"); return; }
+  const btn = $("btn-send");
+  btn.disabled = true; btn.textContent = "Отправляем…";
+  err.classList.add("hidden");
+  try {
+    if (recorder) await new Promise(r => recorder.onstop = r);
+    const videoBlob = new Blob(videoChunks, { type: recorder?.mimeType || "video/mp4" });
+
+    if (videoBlob.size > 1000) {
+      const up = await upload(videoBlob.name || "face.mp4", videoBlob, { access: "public", handleUploadUrl: "/api/blob-token", contentType: videoBlob.type });
+      state.videoUrl = up.url;
+    }
+    const resp = await fetch("/api/submit", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state)
+    });
+    if (!resp.ok) throw new Error("submit failed");
+    $("s-docs").classList.add("hidden");
+    $("s-done").classList.remove("hidden");
+    scrollTo(0, 0);
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Отправить заявку";
+    err.textContent = "Не отправилось. Проверьте интернет и попробуйте ещё раз.";
+    err.classList.remove("hidden");
+  }
+};
+</script>
+</body>
+</html>
